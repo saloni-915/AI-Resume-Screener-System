@@ -1,7 +1,7 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional, List
 from datetime import datetime
-from typing import List
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 # ---------- User / Auth ----------
@@ -9,7 +9,6 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     full_name: Optional[str] = None
-
 
 
 class UserOut(BaseModel):
@@ -103,6 +102,7 @@ class MatchResultOut(BaseModel):
 
 class CandidateRanking(BaseModel):
     """Used for the ranking dashboard — combines resume + parsed + match info."""
+
     resume_id: int
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
@@ -110,6 +110,7 @@ class CandidateRanking(BaseModel):
     explanation: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class LoginRequest(BaseModel):
     email: EmailStr

@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text,Boolean
+from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer,
+                        String, Text)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
 from app.database import Base
 
 
@@ -26,14 +28,16 @@ class Job(Base):
     required_skills = Column(Text, nullable=False)
     experience = Column(Float, nullable=False)
     education = Column(String(100), nullable=False)
-    location = Column(String(255),  nullable=False)
+    location = Column(String(255), nullable=False)
     salary = Column(Float, nullable=False)
     recruiter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     recruiter = relationship("User", back_populates="jobs")
     resumes = relationship("Resume", back_populates="job", cascade="all, delete-orphan")
-    match_results = relationship("MatchResult", back_populates="job", cascade="all, delete-orphan")
+    match_results = relationship(
+        "MatchResult", back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class Resume(Base):
@@ -48,9 +52,14 @@ class Resume(Base):
 
     job = relationship("Job", back_populates="resumes")
     parsed_data = relationship(
-        "ParsedResume", back_populates="resume", uselist=False, cascade="all, delete-orphan"
+        "ParsedResume",
+        back_populates="resume",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
-    match_results = relationship("MatchResult", back_populates="resume", cascade="all, delete-orphan")
+    match_results = relationship(
+        "MatchResult", back_populates="resume", cascade="all, delete-orphan"
+    )
 
 
 class ParsedResume(Base):
@@ -61,7 +70,7 @@ class ParsedResume(Base):
     candidate_name = Column(String(100), nullable=True)
     candidate_email = Column(String(100), nullable=True)
     candidate_phone = Column(String(100), nullable=True)
-    skills = Column(Text, nullable=True)          # comma-separated or JSON string
+    skills = Column(Text, nullable=True)  # comma-separated or JSON string
     education = Column(String(100), nullable=True)
     experience_years = Column(Float, nullable=True)
     parsed_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -75,10 +84,10 @@ class MatchResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
     resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False)
-    semantic_score = Column(Float, nullable=True)     # embeddings-based similarity
-    keyword_score = Column(Float, nullable=True)       # keyword overlap score
-    final_score = Column(Float, nullable=True)         # combined weighted score
-    explanation = Column(Text, nullable=True)          # strengths/gaps summary
+    semantic_score = Column(Float, nullable=True)  # embeddings-based similarity
+    keyword_score = Column(Float, nullable=True)  # keyword overlap score
+    final_score = Column(Float, nullable=True)  # combined weighted score
+    explanation = Column(Text, nullable=True)  # strengths/gaps summary
     matched_skills = Column(Text, nullable=True)
     missing_skills = Column(Text, nullable=True)
     evaluated_at = Column(DateTime(timezone=True), server_default=func.now())
