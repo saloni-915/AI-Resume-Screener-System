@@ -8,6 +8,7 @@ from app import models, schemas
 from app.auth.dependencies import get_current_user, get_db
 from app.routers.jobs import _get_owned_job_or_404
 from app.services.ai_matcher import compute_match
+from app.services.llm_helper import generate_candidate_summary
 
 router = APIRouter(prefix="/jobs/{job_id}", tags=["Matching"])
 
@@ -118,3 +119,57 @@ def get_rankings(
             )
         )
     return rankings
+
+
+@router.get("/resumes/{resume_id}/summary")
+def get_candidate_summary(
+    job_id: int,
+    resume_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    job = _get_owned_job_or_404(db, job_id, current_user.id)
+
+    resume = (
+        db.query(models.Resume)
+        .options(
+        joinedload(models.Resume.parsed_data)
+        )
+        .filter(
+            models.Resume.id == resume_id,
+            models.Resume.job_id == job.id,
+            )
+            .first()
+            )
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found for this job")
+
+    parsed = resume.parsed_data
+
+    if not parsed:
+        raise HTTPException(
+            status_code=422,
+            detail="Resume has not been parsed yet."
+            )
+    match = (
+        db.query(models.MatchResult)
+        .filter(models.MatchResult.job_id == job.id, models.MatchResult.resume_id == resume.id)
+        .first()
+    )
+
+    if not match:
+        raise HTTPException(
+            status_code=404,
+            detail="Candidate has not been matched yet."
+            )
+
+    summary = generate_candidate_summary(
+        candidate_name=parsed.candidate_name if parsed else None,
+        skills=parsed.skills if parsed else None,
+        experience_years=parsed.experience_years if parsed else None,
+        education=parsed.education if parsed else None,
+        matched_skills=match.matched_skills if match else None,
+        missing_skills=match.missing_skills if match else None,
+    )
+
+    return {"resume_id": resume.id, "summary": summary}
