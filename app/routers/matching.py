@@ -3,6 +3,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
+from app.services.email_service import send_high_match_notification
+from app.config import settings
 
 from app import models, schemas
 from app.auth.dependencies import get_current_user, get_db
@@ -24,39 +26,50 @@ def match_resume_to_job(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # Verify recruiter owns this job
     job = _get_owned_job_or_404(db, job_id, current_user.id)
 
+    # Load resume + parsed data together (avoids extra query)
     resume = (
         db.query(models.Resume)
-        .filter(models.Resume.id == resume_id, models.Resume.job_id == job.id)
+        .options(joinedload(models.Resume.parsed_data))
+        .filter(
+            models.Resume.id == resume_id,
+            models.Resume.job_id == job.id,
+        )
         .first()
     )
+
     if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found for this job")
+        raise HTTPException(
+            status_code=404,
+            detail="Resume not found for this job",
+        )
 
     if not resume.raw_text:
         raise HTTPException(
-            status_code=422, detail="Resume has no extracted text to match against"
+            status_code=422,
+            detail="Resume has no extracted text to match against",
         )
 
     parsed = resume.parsed_data
 
     if not parsed:
-        raise HTTPException(status_code=422, detail="Resume has not been parsed yet.")
-    resume_skills = parsed.skills or ""
-    resume_experience = parsed.experience_years
+        raise HTTPException(
+            status_code=422,
+            detail="Resume has not been parsed yet.",
+        )
 
     result = compute_match(
         resume_text=resume.raw_text,
-        resume_skills=resume_skills,
-        resume_experience_years=resume_experience,
+        resume_skills=parsed.skills or "",
+        resume_experience_years=parsed.experience_years,
         job_description=job.description,
         required_skills=job.required_skills,
         required_experience=job.experience,
     )
 
-    # Agar pehle se match result exist karta hai is resume+job ke liye, to update karo (re-match support)
-    existing = (
+    existing_match = (
         db.query(models.MatchResult)
         .filter(
             models.MatchResult.job_id == job.id,
@@ -66,26 +79,50 @@ def match_resume_to_job(
     )
 
     try:
-        if existing:
+        if existing_match:
             for key, value in result.items():
-                setattr(existing, key, value)
+                setattr(existing_match, key, value)
 
             db.commit()
-            db.refresh(existing)
-            return existing
+            db.refresh(existing_match)
 
-        match_result = models.MatchResult(job_id=job.id, resume_id=resume.id, **result)
+            match_result = existing_match
 
-        db.add(match_result)
-        db.commit()
-        db.refresh(match_result)
+        else:
+            match_result = models.MatchResult(
+                job_id=job.id,
+                resume_id=resume.id,
+                **result,
+            )
 
-        return match_result
+            db.add(match_result)
+            db.commit()
+            db.refresh(match_result)
 
     except SQLAlchemyError:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to save match result.")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save match result.",
+        )
 
+    # Send notification for high-score candidates
+    if (
+        match_result.final_score >= settings.HIGH_MATCH_THRESHOLD
+        and current_user.email
+    ):
+        try:
+            send_high_match_notification(
+                recruiter_email=current_user.email,
+                candidate_name=parsed.candidate_name,
+                job_title=job.title,
+                final_score=match_result.final_score,
+                explanation=match_result.explanation,
+            )
+        except Exception as e:
+            print(f"Email notification failed: {e}")
+
+    return match_result
 
 @router.get("/rankings", response_model=List[schemas.CandidateRanking])
 def get_rankings(
